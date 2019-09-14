@@ -5,7 +5,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room, close_room, ro
 
 # Set this variable to "threading", "eventlet", or "gevent" to test the different async modes, or leave it set to
 # None for the application to choose the best option based on installed packages.
-async_mode = None
+async_mode = 'eventlet'
 
 app = Flask(__name__)
 app.config['SECRET_KET'] = 'secret!'
@@ -24,7 +24,7 @@ def background_thread():
 
 
 @app.route('/')
-def hello_world():
+def index():
     return render_template('base.html', async_mode=socketio.async_mode)
 
 
@@ -32,6 +32,54 @@ def hello_world():
 def test_message(message):
     session['receive_count'] = session.get('receive_count', 0) + 1
     emit('my_response', {'data': message['data'], 'count': session['receive_count']})
+
+
+@socketio.on('my_broadcast_event', namespace='/test')
+def test_broadcast_message(message):
+    session['receive_count'] = session.get('receive_count', 0) + 1
+    emit('my_response', {'data': message['data'], 'count': session['receive_count']}, broadcast=True)
+
+
+@socketio.on('join', namespace='/test')
+def join(message):
+    join_room(message['room'])
+    session['receive_count'] = session.get('receive_count', 0) + 1
+    emit('my_response', {'data': f"In rooms: {', '.join(rooms())}", 'count': session['receive_count']})
+
+
+@socketio.on('leave', namespace='/test')
+def leave(message):
+    leave_room(message['room'])
+    session['receive_count'] = session.get('receive_count', 0) + 1
+    emit('my_response', {'data': f"In rooms: {', '.join(rooms())}", 'count': session['receive_count']})
+
+
+@socketio.on('close_room', namespace='/test')
+def close(message):
+    session['receive_count'] = session.get('receive_count', 0) + 1
+    emit(
+        'my_response',
+        {'data': f"Room {message['room']} is closing.", 'count': session['receive_count']},
+        room=message['room']
+    )
+
+
+@socketio.on('my_room_event', namespace='/test')
+def send_room_message(message):
+    session['receive_count'] = session.get('receive_count', 0) + 1
+    emit('my_response', {'data': message['data'], 'count': session['receive_count']}, room=message['room'])
+
+
+@socketio.on('disconnect_request', namespace='/test')
+def disconnect_request():
+    @copy_current_request_context
+    def can_disconnect():
+        disconnect()
+
+    session['receive_count'] = session.get('receive_count', 0) + 1
+    # for this emit we use a callback function
+    # when the callback function is invoked we know that the message has been received and it is safe to disconnect
+    emit('my_response', {'data': 'Disconnected!', 'count': session['receive_count']}, callback=can_disconnect)
 
 
 @socketio.on('my_ping', namespace='/test')
